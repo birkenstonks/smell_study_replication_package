@@ -1,2 +1,2 @@
 # smell_study_replication_package
-Replication package based on data and analysis scripts for the smell study
+This repo contains the data and scripts necessary for replicating the statistics in the submission titled 'The Influence of Environmental Odors on Developer Cognition.' The scripts can be run in order from rq1 to rq4, with statistics for demographics located in demographic_comparison.ipynb. These scripts rely on common python libraries (i.e., python, numpy, seaborn), so any missing libraries should hopefully involve a straightforward 'pip install'.
