@@ -1,7 +1,10 @@
 import re
 import numpy as np
 import pandas as pd
+import pingouin as pg
+import seaborn as sns
 import scipy.stats as stats
+import matplotlib.pyplot as plt
 import statsmodels.stats.multitest as smm
 
 def cohens_d(list1, list2):
@@ -10,38 +13,98 @@ def cohens_d(list1, list2):
     pooled_var = ((n1-1) * s1 + (n2-1) * s2) / (n1 + n2 - 2)
     return (np.nanmean(list1) - np.nanmean(list2)) / np.sqrt(pooled_var)
 
-def print_stats(name, filtered_data):
-    av = np.mean(filtered_data)
-    std = np.std(filtered_data)
-    stat, pval = stats.shapiro(filtered_data)
-    
-    print(f"{name}, num elements: {len(filtered_data)}, mean: {av}, std: {std}, normal (above 0.5 is normal): {pval}")
+def hedges_g(group1, group2):
+    g = pg.compute_effsize(group1, group2, eftype='hedges')
+    return g
 
-# trying median absolute deviation
-def remove_outliers(data, name):  # takes in a list or pandas Series
-    # for col in names:
-    #     print(col)
-    data = np.array(data) #[indices.astype(int)]
-    median = np.median(data)
-    mad_list = list(np.abs(data - median))
-    mad_list.sort()
+def print_stats(name, data):
+    av = np.mean(data)
+    std = np.std(data)
+    stat, pval = stats.shapiro(data)
     
-    mad = np.median(np.abs(data - median))  # Median Absolute Deviation
-    # print(median, mad, mad_list)
-    threshold = 3  # Equivalent to 3 standard deviations
-    filtered_data = data[np.abs(data - median) <= threshold * mad]
-    new_list = []
-    for el in data:
-        delta = np.abs(el - median)
-        if delta <= (threshold * mad):
-            new_list.append(el)
-    # print(new_list, median, mad)
-    print_stats(name, filtered_data)
+    print(f"{name}, num elements: {len(data)}, mean: {av}, std: {std}, normal (above 0.5 is normal): {pval}")
+    return pval
+
+def run_stats_procedure(lemon, neutral, fish, title):
+    print(f"\nNeutral: {sorted(list(neutral))}\nLemon: {sorted(list(lemon))}\nFish: {sorted(list(fish))}\n")
+    # ANOVA
+    norm_neutral_p = print_stats('Neutral', neutral)
+    norm_lemon_p = print_stats('Lemon', lemon)
+    norm_fish_p = print_stats('fish', fish)
     
-    return filtered_data
+    # calculating homogeneity of variance
+    var_stat, var_p = stats.levene(lemon, neutral, fish)
+    
+    if var_p < 0.05 or norm_neutral_p < 0.05 or norm_lemon_p < 0.05 or norm_fish_p < 0.05:
+        test = 'kruskal'
+        group_stat, group_p = stats.kruskal(lemon, neutral, fish)
+        print(f"Kruskal-Wallis: H {group_stat}, P VAL: {group_p}\n")
+    else:
+        test = 'anova'
+        group_stat, group_p = stats.f_oneway(neutral, fish, lemon)
+        print(f"ANOVA F: {group_stat}, P VAL: {group_p}\n")
+    
+    output[title] = {
+        'neutral': sorted(neutral),
+        'lemon': sorted(lemon),
+        'fish': sorted(fish)
+    }
+    box_plots_prefiltering(title, neutral, lemon, fish)
+    
+    if group_p < 0.05:
+        if test == 'anova':
+            # T-Tests
+            nf_stat, nf_pval = stats.ttest_ind(neutral, fish)
+            nl_stat, nl_pval = stats.ttest_ind(neutral, lemon)
+            fl_stat, fl_pval = stats.ttest_ind(fish, lemon)
+            p_vals = [nf_pval, nl_pval, fl_pval]
+            print(f"neutral v fish | t-stat: {nf_stat}, p-val: {nf_pval}, effect size: {cohens_d(neutral, fish)}, other effect size: {hedges_g(neutral, fish)}")
+            print(f"neutral v lemon | t-stat: {nl_stat}, p-val: {nl_pval}, effect size: {cohens_d(neutral, lemon)}, other effect size: {hedges_g(neutral, lemon)}")
+            print(f"fish v lemon | t-stat: {fl_stat}, p-val: {fl_pval}, effect size: {cohens_d(fish, lemon)}, other effect size: {hedges_g(fish, lemon)}\n")
+            
+        elif test == 'kruskal':
+            nf_stat, nf_pval = stats.mannwhitneyu(neutral, fish, alternative='two-sided')
+            nl_stat, nl_pval = stats.mannwhitneyu(neutral, lemon, alternative='two-sided')
+            fl_stat, fl_pval = stats.mannwhitneyu(fish, lemon, alternative='two-sided')
+            p_vals = [nf_pval, nl_pval, fl_pval]
+            print(f"neutral v fish | U-stat: {nf_stat}, p-val: {nf_pval}, effect size: {cohens_d(neutral, fish)}, other effect size: {hedges_g(neutral, fish)}")
+            print(f"neutral v lemon | U-stat: {nl_stat}, p-val: {nl_pval}, effect size: {cohens_d(neutral, lemon)}, other effect size: {hedges_g(neutral, lemon)}")
+            print(f"fish v lemon | U-stat: {fl_stat}, p-val: {fl_pval}, effect size: {cohens_d(fish, lemon)}, other effect size: {hedges_g(fish, lemon)}\n")
+            
+    return output
 
 
-def calculate_stats(df, relevant_columns):
+def box_plots_prefiltering(title, neutral, lemon, fish):
+    colors = ['#F0E68C', '#708090', '#FFB3BA']  # Slate Gray for Neutral, Softer yellow for Lemon, and Pink for Fish
+
+    # Creating the box and whisker plot
+    plt.figure(figsize=(11, 6))
+    box = plt.boxplot(
+        [lemon, neutral, fish], 
+        labels=['Lemon', 'Neutral', 'Fish'], 
+        patch_artist=True, 
+        boxprops=dict(facecolor='lightgray', color='black'),
+        medianprops=dict(color='black'),
+        whiskerprops=dict(color='black'),
+        capprops=dict(color='black')
+    )
+
+    # Set individual colors for the boxes
+    for patch, color in zip(box['boxes'], colors):
+        patch.set_facecolor(color)
+
+    # Adding title and labels
+    plt.title(title, fontsize=16, fontweight='bold')
+    plt.xlabel("Condition", fontsize=18)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+
+    # Add gridlines
+    plt.grid(True, linestyle='--', alpha=0.7)
+
+    plt.savefig(f"figures/{title}.png", dpi=150)
+
+
+def calculate_stats(df, relevant_columns, remove=True):
     all_metrics = {
         'fc' : 'Fixation Count',
         'fd' : 'Cumulative Fixation Duration',
@@ -54,42 +117,26 @@ def calculate_stats(df, relevant_columns):
         'compound' : 'Compound Metric'
     }
     
+    output = {}
+    
     i = 0
     while i < len(relevant_columns):
         metric = re.split('_', relevant_columns[i])[-1]
         title = all_metrics[metric]
         print(title)
         
-        neutral_temp = df[relevant_columns[i]].dropna()
-        # print(f"Neutral: {list(neutral_temp)}")
-        neutral = remove_outliers(neutral_temp, relevant_columns[i])
+        neutral = df[relevant_columns[i]].dropna()
         i += 1
         
-        lemon_temp = df[relevant_columns[i]].dropna()
-        # print(f"Lemon: {list(lemon_temp)}")
-        lemon = remove_outliers(lemon_temp, relevant_columns[i])
+        lemon = df[relevant_columns[i]].dropna()
         i += 1
         
-        fish_temp = df[relevant_columns[i]].dropna()
-        # print(f"Fish: {list(fish_temp)}")
-        fish = remove_outliers(fish_temp, relevant_columns[i])
+        fish = df[relevant_columns[i]].dropna()
         i += 1
-        
-        print(f"Neutral: {list(neutral)}\nLemon: {list(lemon)}\nFish: {list(fish)}")
-        # print(f"\nNeutral: {neutral}\nLemon: {[lemon]}\nFish: {fish}\n")
-        
-        # ANOVA
-        anova_stat, anova_pval = stats.f_oneway(neutral, fish, lemon)
-        print(f"ANOVA F: {anova_stat}, P VAL: {anova_pval}")
-        
-        # T-Tests
-        nf_stat, nf_pval = stats.ttest_ind(neutral, fish)
-        nl_stat, nl_pval = stats.ttest_ind(neutral, lemon)
-        fl_stat, fl_pval = stats.ttest_ind(fish, lemon)
-        
-        print(f"Neutral v Fish | T-stat: {nf_stat}, p-val: {nf_pval}, Effect Size: {cohens_d(neutral, fish)}")
-        print(f"Neutral v Lemon | T-stat: {nl_stat}, p-val: {nl_pval}, Effect Size: {cohens_d(neutral, lemon)}")
-        print(f"Fish v Lemon | T-stat: {fl_stat}, p-val: {fl_pval}, Effect Size: {cohens_d(fish, lemon)}\n")
+       
+        output = run_stats_procedure(lemon, neutral, fish, title)
+                        
+    return output
         
         
 def make_three_group_lists(df, important_col):
@@ -104,56 +151,18 @@ def make_three_group_lists(df, important_col):
     return fish_list, lemon_list, neutral_list
         
 
-def three_lists_stats(fish_list, lemon_list, neut_list, name, remove=True):
+def three_lists_stats(fish_list, lemon_list, neut_list, name):
     fish_list = fish_list.replace(' ', np.nan).dropna()
     lemon_list = lemon_list.replace(' ', np.nan).dropna()
     neut_list = neut_list.replace(' ', np.nan).dropna()
     print(name)
-    # neut_list = neut_list.dropna()
-    # print(type(neut_list[0]))
     fish = [float(el) for el in fish_list]
     lemon = [float(el) for el in lemon_list]
     neutral = [float(el) for el in neut_list]
-    # list(fish_list.dropna())
-    # l = list(lemon_list.dropna())
-    # n = list(neut_list.dropna())
     fish.sort()
     lemon.sort()
     neutral.sort()
-    
-    print(f"FISH: {fish}")
-    print(f"LEMON: {lemon}")
-    print(f"NEUTRAL: {neutral}")
-    
-    if remove:
-        neutral = remove_outliers(neutral, 'neutral')
-        lemon = remove_outliers(lemon, 'lemon')
-        fish = remove_outliers(fish, 'fish')
-    # else:
-    #     neutral = n.dropna()
-    #     lemon = l.dropna()
-    #     fish = f.dropna()
-        
-        print_stats('neutral', neutral)
-        print_stats('lemon', lemon)
-        print_stats('fish', fish)
-        
-    # ANOVA
-    anova_stat, anova_pval = stats.f_oneway(neutral, fish, lemon)
-    print(f"ANOVA F: {anova_stat}, P VAL: {anova_pval}")
-    
-    # T-Tests
-    # for i in range(len(neutral)):
-    #     print(type(i))
-    # for i in range(len(fish)):
-    #     print(type(i))
-    # for i in range(len(lemon)):
-    #     print(type(i))
-    nf_stat, nf_pval = stats.ttest_ind(neutral, fish)
-    nl_stat, nl_pval = stats.ttest_ind(neutral, lemon)
-    fl_stat, fl_pval = stats.ttest_ind(fish, lemon)
-    
-    print(f"Neutral v Fish | T-stat: {nf_stat}, p-val: {nf_pval}, Effect Size: {cohens_d(neutral, fish)}")
-    print(f"Neutral v Lemon | T-stat: {nl_stat}, p-val: {nl_pval}, Effect Size: {cohens_d(neutral, lemon)}")
-    print(f"Fish v Lemon | T-stat: {fl_stat}, p-val: {fl_pval}, Effect Size: {cohens_d(fish, lemon)}\n")
-        
+   
+    output = run_stats_procedure(lemon, neutral, fish, name)
+              
+    return output
