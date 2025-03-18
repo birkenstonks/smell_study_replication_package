@@ -22,7 +22,7 @@ def print_stats(name, data):
     std = np.std(data)
     stat, pval = stats.shapiro(data)
     
-    print(f"{name}, num elements: {len(data)}, mean: {av}, std: {std}, normal (above 0.5 is normal): {pval}")
+    print(f"{name}, num elements: {len(data)}, mean: {av}, std: {std}, normal (above 0.05 is normal): {pval}")
     return pval
 
 def run_stats_procedure(lemon, neutral, fish, title):
@@ -44,6 +44,7 @@ def run_stats_procedure(lemon, neutral, fish, title):
         group_stat, group_p = stats.f_oneway(neutral, fish, lemon)
         print(f"ANOVA F: {group_stat}, P VAL: {group_p}\n")
     
+    output = {}
     output[title] = {
         'neutral': sorted(neutral),
         'lemon': sorted(lemon),
@@ -101,7 +102,7 @@ def box_plots_prefiltering(title, neutral, lemon, fish):
     # Add gridlines
     plt.grid(True, linestyle='--', alpha=0.7)
 
-    plt.savefig(f"figures/{title}.png", dpi=150)
+    # plt.savefig(f"figures/{title}.png", dpi=150)
 
 
 def calculate_stats(df, relevant_columns, remove=True):
@@ -117,9 +118,8 @@ def calculate_stats(df, relevant_columns, remove=True):
         'compound' : 'Compound Metric'
     }
     
-    output = {}
-    
     i = 0
+    output = {}
     while i < len(relevant_columns):
         metric = re.split('_', relevant_columns[i])[-1]
         title = all_metrics[metric]
@@ -133,9 +133,10 @@ def calculate_stats(df, relevant_columns, remove=True):
         
         fish = df[relevant_columns[i]].dropna()
         i += 1
-       
-        output = run_stats_procedure(lemon, neutral, fish, title)
-                        
+        # print(title, metric, "hello hello")
+        temp_output = run_stats_procedure(lemon, neutral, fish, title)
+        output[title] = temp_output[title]
+
     return output
         
         
