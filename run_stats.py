@@ -164,6 +164,8 @@ def three_lists_stats(fish_list, lemon_list, neut_list, name):
     lemon.sort()
     neutral.sort()
    
-    output = run_stats_procedure(lemon, neutral, fish, name)
-              
+    output = {}
+    temp_output = run_stats_procedure(lemon, neutral, fish, name)
+    output[name] = temp_output[name]
+         
     return output
